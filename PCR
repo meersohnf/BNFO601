@@ -1,0 +1,134 @@
+
+YOURNAME_PCR_growth.py
+
+Simulation of PCR (Polymerase Chain Reaction) amplification using
+recursive object creation to model exponential DNA amplification.
+
+Author: YOURNAME
+Course: BNFO 601
+Date: February 2026
+"""
+
+# Import random() function for stochastic modeling of PCR efficiency
+from random import random
+
+# Import Counter - specialized dictionary for efficient counting/tallying
+from collections import Counter
+
+# Import matplotlib for visualizing amplicon growth over cycles
+from matplotlib import pyplot as plt
+
+
+class Amplicon:
+    """
+    Represents a single DNA amplicon (copy) generated during PCR.
+    
+    Each amplicon knows when it was created and can recursively create
+    new copies of itself in subsequent cycles, modeling the exponential
+    amplification process of PCR.
+    """
+    
+    # CLASS VARIABLES - shared across ALL Amplicon instances
+    # This enables global population tracking without external data structures
+    members = []  # List of all amplicon objects ever created (population registry)
+    amplicon_counter = Counter()  # Tally of how many amplicons created at each cycle number
+
+    def __init__(self, total_cycles, probability_of_success=1.0, current_cycle=None):
+        """
+        Create an amplicon and recursively generate all its downstream copies.
+        
+        Args:
+            total_cycles: Maximum number of PCR cycles to simulate
+            probability_of_success: Probability (0-1) that amplification succeeds each cycle
+            current_cycle: Which cycle this amplicon was created in (None = starting template)
+        """
+        
+        # Handle the initial template molecule(s) - they exist at cycle 0
+        if current_cycle is None:
+            current_cycle = 0  # Starting template created before any cycling begins
+        
+        # Register this amplicon in the class-level population tracking
+        Amplicon.members.append(self)  # Add to global list of all amplicons
+        
+        # Increment the counter for this cycle - tracks population by cycle
+        Amplicon.amplicon_counter[current_cycle] += 1
+        
+        # RECURSIVE AMPLIFICATION: Create all future copies this amplicon will template
+        # This is the heart of the simulation - each molecule templates copies in subsequent cycles
+        if current_cycle < total_cycles:  # Only amplify if we haven't reached the final cycle
+            
+            # Loop through each remaining cycle starting from the next one
+            for cycle in range(current_cycle + 1, total_cycles + 1):
+                
+                # Stochastic check: Does this amplification event succeed?
+                # random() returns float in [0.0, 1.0) - models PCR efficiency
+                if random() <= probability_of_success:
+                    
+                    # SUCCESS! Create a new amplicon in this future cycle
+                    # This is the recursive call - new Amplicon will create its own descendants
+                    # Each successful amplification creates ONE new copy (the other stays as template)
+                    Amplicon(total_cycles, probability_of_success, current_cycle=cycle)
+                    
+                    # NOTE: In real PCR, we'd create 2 copies per cycle, but this model
+                    # creates 1 new copy while the parent continues templating. The math
+                    # works out the same for exponential growth tracking.
+
+
+"""
+MAIN SIMULATION CODE
+Runs multiple trials and averages results to account for stochastic variation
+"""
+
+# Define simulation parameters
+number_of_trials = 100  # Run 100 independent PCR reactions to get stable average
+number_of_cycles = 16  # Simulate 16 thermal cycles (typical for PCR)
+probability_of_successful_amplification = 1  # 100% efficiency (ideal conditions)
+
+# Storage for results that will be averaged across trials
+amplicons_per_cycle = []  # Will hold the final averaged counts
+
+# Run multiple independent trials to average out random variation
+for trial in range(number_of_trials):
+    
+    # Create the initial template molecule - this triggers the entire recursive cascade
+    # One call to Amplicon() generates the entire amplification tree for this trial!
+    my_amplicon = Amplicon(total_cycles=number_of_cycles,
+                           probability_of_success=probability_of_successful_amplification)
+    
+    # Extract the counts from the Counter object for this trial
+    # most_common() returns list of (cycle, count) tuples sorted by count (descending)
+    amplicons_per_cycle = [count for _, count in Amplicon.amplicon_counter.most_common()]
+    
+    # Reverse the list so it's in cycle order (0, 1, 2, ... 16) instead of count order
+    amplicons_per_cycle.reverse()
+    
+    # Display results for this trial - shows cumulative production and total
+    print(
+        f'Cumulative amplicons produced each cycle during trial {trial + 1}: {amplicons_per_cycle} Total amplicons: '
+        f'{sum(amplicons_per_cycle)}')  # Sum gives total amplicons created across all cycles
+    
+    # CRITICAL: Reset class variables for next trial
+    # Without this, counts would accumulate across trials instead of being independent
+    Amplicon.members = []  # Clear the population registry
+    Amplicon.amplicon_counter = Counter()  # Reset the cycle counter
+
+# Calculate average amplicons per cycle across all trials
+# Round to nearest integer since fractional amplicons don't make biological sense
+cycle_average = [round(cycle / number_of_trials) for cycle in amplicons_per_cycle]
+
+# Display the averaged results
+print(f'\nThe average number of amplicons per cycle was: {cycle_average} ')
+
+# Visualize the exponential growth pattern
+# x-axis: cycle number (0 through number_of_cycles)
+# y-axis: average number of amplicons produced at that cycle
+plt.plot(range(0, number_of_cycles + 1),  # X values: cycles 0 to 16 inclusive
+         cycle_average,  # Y values: averaged amplicon counts
+         label='Average amplicons produced at cycle')  # Legend label
+
+# Add axis labels for clarity
+plt.xlabel("Cycle")  # X-axis label
+plt.ylabel("Average amplicons produced at cycle")  # Y-axis label
+
+# Display the plot window
+plt.show()  # Opens interactive matplotlib window with the growth curve
