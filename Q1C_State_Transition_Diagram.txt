@@ -1,0 +1,171 @@
+QUESTION 1C: State Transition Diagram for BLAST XML Parser
+
+STATE MACHINE DESIGN:
+===================
+
+The parser operates as a finite state machine with the following states:
+
+STATES:
+-------
+1. SCAN_FOR_ITERATION - Looking for <Iteration> tag (start of new query)
+2. IN_ITERATION - Inside iteration, capturing query metadata
+3. SCAN_FOR_HIT - Looking for <Hit> tag or checking for no hits
+4. IN_HIT - Inside hit, capturing subject metadata
+5. SCAN_FOR_HSP - Looking for <Hsp> tag
+6. IN_HSP - Inside HSP, capturing alignment details
+7. FINALIZE_QUERY - End of iteration, emit query result
+
+
+STATE TRANSITION DIAGRAM (ASCII Art):
+====================================
+
+                    START
+                      |
+                      v
+         +-------------------------+
+         |  SCAN_FOR_ITERATION     |<-------------------+
+         |  (Looking for           |                    |
+         |   <Iteration>)          |                    |
+         +-------------------------+                    |
+                      |                                 |
+         Found <Iteration> tag                          |
+                      |                                 |
+                      v                                 |
+         +-------------------------+                    |
+         |  IN_ITERATION           |                    |
+         |  (Capture query_id,     |                    |
+         |   query_def, query_len) |                    |
+         +-------------------------+                    |
+                      |                                 |
+         Found <Iteration_hits>                         |
+                      |                                 |
+                      v                                 |
+         +-------------------------+                    |
+         |  SCAN_FOR_HIT           |<----------+        |
+         |  (Looking for <Hit>     |           |        |
+         |   or </Iteration_hits>) |           |        |
+         +-------------------------+           |        |
+                |             |                |        |
+    Found <Hit> |             | Found          |        |
+                |             | </Iteration_hits>       |
+                |             | (No hits case)  |        |
+                v             |                 |        |
+   +-------------------------+|                 |        |
+   |  IN_HIT                 ||                 |        |
+   |  (Capture hit_id,       ||                 |        |
+   |   hit_def, hit_len)     ||                 |        |
+   +-------------------------+|                 |        |
+                |             |                 |        |
+   Found <Hit_hsps>           v                 |        |
+                |    +-------------------------+|        |
+                |    |  FINALIZE_QUERY         ||        |
+                |    |  (Emit QueryResult      ||        |
+                v    |   with empty hits)      ||        |
+   +-------------------------+|                 |        |
+   |  SCAN_FOR_HSP           ||                 |        |
+   |  (Looking for <Hsp>     ||                 |        |
+   |   or </Hit_hsps>)       ||                 |        |
+   +-------------------------+|                 |        |
+                |             |                 |        |
+   Found <Hsp>  |             |                 |        |
+                |             v                 |        |
+                v          Loop back to         |        |
+   +-------------------------+ SCAN_FOR_HIT     |        |
+   |  IN_HSP                 |                  |        |
+   |  (Capture evalue,       |                  |        |
+   |   identity, alignment)  |                  |        |
+   +-------------------------+                  |        |
+                |                               |        |
+   Found </Hsp> |                               |        |
+                |                               |        |
+                +-------------------------------+        |
+                                                         |
+   Found </Iteration> ------------------------------------+
+   
+   
+DETAILED STATE DESCRIPTIONS:
+============================
+
+State 1: SCAN_FOR_ITERATION
+----------------------------
+- Looking for: <Iteration> tag
+- Actions: None (scanning)
+- Transitions:
+  * Found <Iteration> → IN_ITERATION
+  * EOF → END (terminate parsing)
+
+State 2: IN_ITERATION
+---------------------
+- Looking for: <Iteration_query-ID>, <Iteration_query-def>, <Iteration_query-len>
+- Actions: Extract and store query metadata
+- Transitions:
+  * Found <Iteration_hits> → SCAN_FOR_HIT
+
+State 3: SCAN_FOR_HIT
+---------------------
+- Looking for: <Hit> tag OR </Iteration_hits> tag OR <Iteration_message> (no hits)
+- Actions: None (scanning)
+- Transitions:
+  * Found <Hit> → IN_HIT
+  * Found </Iteration_hits> or "No hits found" → FINALIZE_QUERY
+  * Found </Iteration> → FINALIZE_QUERY
+
+State 4: IN_HIT
+---------------
+- Looking for: <Hit_id>, <Hit_def>, <Hit_len>, <Hit_accession>
+- Actions: Extract and store hit metadata
+- Transitions:
+  * Found <Hit_hsps> → SCAN_FOR_HSP
+
+State 5: SCAN_FOR_HSP
+---------------------
+- Looking for: <Hsp> tag OR </Hit_hsps> tag
+- Actions: None (scanning)
+- Transitions:
+  * Found <Hsp> → IN_HSP
+  * Found </Hit_hsps> → SCAN_FOR_HIT (look for next hit)
+
+State 6: IN_HSP
+---------------
+- Looking for: <Hsp_evalue>, <Hsp_bit-score>, <Hsp_identity>, <Hsp_positive>, 
+               <Hsp_align-len>, <Hsp_qseq>, <Hsp_hseq>, <Hsp_midline>
+- Actions: Extract and store HSP alignment data, create Hit object when complete
+- Transitions:
+  * Found </Hsp> → SCAN_FOR_HSP (look for next HSP in same hit)
+
+State 7: FINALIZE_QUERY
+-----------------------
+- Looking for: End of iteration
+- Actions: Create QueryResult object with all collected data, emit/yield result
+- Transitions:
+  * Always → SCAN_FOR_ITERATION (look for next query)
+
+
+KEY PARSING LOGIC:
+==================
+
+1. XML is self-describing: tags tell us what data follows
+2. No regular expressions needed - simple string matching on tags
+3. Hierarchical structure: Iteration > Hit > Hsp
+4. Special case: empty <Iteration_hits></Iteration_hits> means no hits found
+5. Multiple HSPs per Hit possible (different alignment regions)
+6. Multiple Hits per Iteration possible (different matching proteins)
+
+IMPLEMENTATION STRATEGY:
+========================
+
+- Use simple line-by-line reading
+- Check for opening tags: if line.strip().startswith('<Tag>')
+- Extract data: content between > and < 
+- Check for closing tags to trigger state transitions
+- Use instance variables to accumulate data within each state
+- Emit QueryResult objects when </Iteration> found
+
+ADVANTAGE OVER TEXT PARSING:
+============================
+
+- No fragile regular expressions
+- Works with ANY BLAST version (XML schema is stable)
+- Self-documenting structure
+- Can't miss data (tags explicitly label everything)
+- Easy to add new fields (just check for new tags)
