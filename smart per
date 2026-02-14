@@ -1,0 +1,197 @@
+"""
+YOURNAME_smartypants_PCR_growth.py
+
+Enhanced PCR simulation with statistical visualization showing:
+- Mean (average) amplicon count per cycle
+- 20th and 80th percentile ranges
+- Confidence intervals around the mean
+
+This provides a more complete picture of PCR stochasticity and variability.
+
+Author: YOURNAME
+Course: BNFO 601
+Date: February 2026
+"""
+
+from random import random
+from collections import Counter
+from matplotlib import pyplot as plt
+import numpy as np  # For statistical calculations
+
+
+class Amplicon:
+    """
+    Represents a single DNA amplicon (copy) generated during PCR.
+    Uses recursive object creation to model exponential amplification.
+    """
+    
+    members = []  # Global registry of all amplicons
+    amplicon_counter = Counter()  # Counts amplicons by cycle
+
+    def __init__(self, total_cycles, probability_of_success=1.0, current_cycle=None):
+        """
+        Create an amplicon and recursively generate all downstream copies.
+        """
+        
+        if current_cycle is None:
+            current_cycle = 0  # Starting template at cycle 0
+        
+        Amplicon.members.append(self)  # Register in population
+        Amplicon.amplicon_counter[current_cycle] += 1  # Tally this cycle
+        
+        # Recursive amplification through subsequent cycles
+        if current_cycle < total_cycles:
+            for cycle in range(current_cycle + 1, total_cycles + 1):
+                if random() <= probability_of_success:
+                    # Create new amplicon in future cycle
+                    Amplicon(total_cycles, probability_of_success, current_cycle=cycle)
+
+
+# ==================== SIMULATION PARAMETERS ====================
+
+number_of_trials = 100  # Number of independent PCR runs
+number_of_cycles = 16  # Thermal cycles to simulate
+probability_of_successful_amplification = 1.0  # PCR efficiency (1.0 = 100%)
+
+# ==================== DATA COLLECTION ====================
+
+# Store complete data from each trial for statistical analysis
+all_trial_data = []  # List of lists - each inner list is one trial's cycle counts
+
+# Run all trials and collect data
+for trial in range(number_of_trials):
+    
+    # Run one complete PCR simulation
+    my_amplicon = Amplicon(total_cycles=number_of_cycles,
+                           probability_of_success=probability_of_successful_amplification)
+    
+    # Extract counts for this trial
+    amplicons_per_cycle = [count for _, count in Amplicon.amplicon_counter.most_common()]
+    amplicons_per_cycle.reverse()  # Put in cycle order
+    
+    # Store this trial's data
+    all_trial_data.append(amplicons_per_cycle)
+    
+    # Progress report
+    print(f'Trial {trial + 1}: {amplicons_per_cycle} Total: {sum(amplicons_per_cycle)}')
+    
+    # Reset for next trial
+    Amplicon.members = []
+    Amplicon.amplicon_counter = Counter()
+
+# ==================== STATISTICAL ANALYSIS ====================
+
+# Convert to numpy array for easier statistical operations
+# Shape will be (number_of_trials, number_of_cycles + 1)
+trial_array = np.array(all_trial_data)
+
+# Calculate statistics for each cycle (across all trials)
+# axis=0 means calculate along the trial dimension
+cycle_means = np.mean(trial_array, axis=0)  # Mean amplicons per cycle
+cycle_std = np.std(trial_array, axis=0)  # Standard deviation per cycle
+cycle_20th = np.percentile(trial_array, 20, axis=0)  # 20th percentile
+cycle_80th = np.percentile(trial_array, 80, axis=0)  # 80th percentile
+
+# 95% confidence interval (assuming normal distribution)
+# CI = mean ± 1.96 * (std / sqrt(n))
+confidence_margin = 1.96 * (cycle_std / np.sqrt(number_of_trials))
+ci_lower = cycle_means - confidence_margin
+ci_upper = cycle_means + confidence_margin
+
+# Display summary statistics
+print('\n' + '=' * 80)
+print('STATISTICAL SUMMARY')
+print('=' * 80)
+print(f'Mean amplicons per cycle: {cycle_means.round().astype(int)}')
+print(f'20th percentile: {cycle_20th.round().astype(int)}')
+print(f'80th percentile: {cycle_80th.round().astype(int)}')
+print(f'Standard deviation: {cycle_std.round(1)}')
+print('=' * 80)
+
+# ==================== ENHANCED VISUALIZATION ====================
+
+# Create figure with two subplots
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+cycles = range(0, number_of_cycles + 1)  # X-axis values
+
+# -------------------- SUBPLOT 1: Mean with Percentile Bands --------------------
+
+# Plot the mean
+ax1.plot(cycles, cycle_means, 'b-', linewidth=2, label='Mean', marker='o')
+
+# Plot 20th and 80th percentiles
+ax1.plot(cycles, cycle_20th, 'g--', linewidth=1.5, label='20th percentile', alpha=0.7)
+ax1.plot(cycles, cycle_80th, 'r--', linewidth=1.5, label='80th percentile', alpha=0.7)
+
+# Fill area between percentiles to show spread
+ax1.fill_between(cycles, cycle_20th, cycle_80th, alpha=0.2, color='gray', 
+                 label='20th-80th percentile range')
+
+ax1.set_xlabel('Cycle Number', fontsize=12)
+ax1.set_ylabel('Number of Amplicons', fontsize=12)
+ax1.set_title('PCR Amplification Growth with Percentile Ranges', fontsize=14, fontweight='bold')
+ax1.legend(loc='upper left')
+ax1.grid(True, alpha=0.3)
+
+# -------------------- SUBPLOT 2: Mean with Confidence Interval --------------------
+
+# Plot the mean
+ax2.plot(cycles, cycle_means, 'b-', linewidth=2, label='Mean', marker='o')
+
+# Plot confidence interval bounds
+ax2.plot(cycles, ci_lower, 'g--', linewidth=1, label='95% CI lower', alpha=0.7)
+ax2.plot(cycles, ci_upper, 'r--', linewidth=1, label='95% CI upper', alpha=0.7)
+
+# Fill area showing confidence interval
+ax2.fill_between(cycles, ci_lower, ci_upper, alpha=0.3, color='blue', 
+                 label='95% Confidence Interval')
+
+ax2.set_xlabel('Cycle Number', fontsize=12)
+ax2.set_ylabel('Number of Amplicons', fontsize=12)
+ax2.set_title('PCR Amplification Growth with 95% Confidence Interval', fontsize=14, fontweight='bold')
+ax2.legend(loc='upper left')
+ax2.grid(True, alpha=0.3)
+
+# -------------------- FINALIZE --------------------
+
+plt.tight_layout()  # Adjust spacing between subplots
+plt.show()
+
+# ==================== OPTIONAL: Save figure ====================
+# Uncomment to save the plot
+# fig.savefig('PCR_growth_analysis.png', dpi=300, bbox_inches='tight')
+
+# ==================== ANALYSIS NOTES ====================
+print('\n' + '=' * 80)
+print('INTERPRETATION NOTES')
+print('=' * 80)
+print('''
+KEY OBSERVATIONS:
+
+1. EXPONENTIAL GROWTH PATTERN:
+   - The curve shows characteristic exponential growth
+   - Each cycle approximately doubles the amplicon count (when probability = 1.0)
+   - Growth accelerates dramatically in later cycles
+
+2. VARIABILITY INCREASES WITH CYCLE NUMBER:
+   - Early cycles show tight agreement between trials (narrow percentile range)
+   - Later cycles show more spread (wider percentile range)
+   - This is because stochastic effects compound multiplicatively
+
+3. PERCENTILE INTERPRETATION:
+   - 20th-80th percentile range contains middle 60% of trials
+   - Narrow range = consistent results across trials
+   - Wide range = high variability between trials
+
+4. CONFIDENCE INTERVAL:
+   - 95% CI means we're 95% confident true mean lies in this range
+   - Narrower CI = more precise estimate of mean
+   - Width depends on both variability and number of trials
+
+5. EFFECT OF PROBABILITY PARAMETER:
+   - probability < 1.0 increases variability (wider ranges)
+   - probability < 1.0 reduces growth rate (lower mean)
+   - But growth remains exponential in character
+''')
+print('=' * 80)
